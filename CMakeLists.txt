@@ -27,3 +27,5 @@ ament_target_dependencies(${PROJECT_NAME}
   cv_bridge
   OpenCV
 )
+
+add_compile_definitions(PROJECT_ROOT="${CMAKE_SOURCE_DIR}")

@@ -3,6 +3,8 @@
 #include "ImageSubscriber.hpp"
 #include <opencv2/opencv.hpp>
 #include <memory>
+#include <thread>
+#include <mutex>
 #include <iostream>
 #include <string>
 
@@ -40,118 +42,30 @@ public:
     {
         // Create simplified OpenCV-only subscriber (no ROS)
         imageSub = std::make_shared<ImageSubscriber>();
+        frameThread = std::thread([this]() {run_task();});
     }
 
-    ~ImageSubscriberWrapper() = default;
+    ~ImageSubscriberWrapper()
+    {
+        if (frameThread.joinable())
+        {
+          frameThread.join(); 
+        }
+    };
 
-    /*
-      GetFrame()
-      ----------
-      This version adds STOP SIGN DETECTION to the incoming frame.
-
-      Steps:
-        1. Get frame from ImageSubscriber (OpenCV only)
-        2. Load stop sign template (stop.jpeg)
-        3. Perform template matching
-        4. Draw bounding box + label
-        5. Save detected frame to PNG
-        6. Return processed frame
-    */
     cv::Mat GetFrame()
     {
-        // 1. Get image
-        cv::Mat frame = imageSub->GetFrame();
-        if (frame.empty())
-        {
-            return frame;
-        }
-
-        // 2. Load stop sign template once
-        static cv::Mat stopSignTemplate;
-        static bool loaded = false;
-
-        if (!loaded)
-        {
-            stopSignTemplate = cv::imread(
-                "/home/ehr/Desktop/anupama/CS5320-ObstacleAvoidance/object_detection/stop.jpeg",
-                cv::IMREAD_COLOR);
-
-            if (stopSignTemplate.empty())
-            {
-                std::cerr << "[StopDetector] ERROR: stop.jpeg failed to load.\n";
-            }
-            else
-            {
-                std::cout << "[StopDetector] stop.jpeg loaded.\n";
-            }
-
-            loaded = true;
-        }
-
-        if (stopSignTemplate.empty())
-        {
-            return frame; // No template — nothing to match
-        }
-
-        // 3. Make sure template fits the frame
-        if (stopSignTemplate.cols > frame.cols || stopSignTemplate.rows > frame.rows)
-        {
-            double sx = (double)frame.cols / stopSignTemplate.cols;
-            double sy = (double)frame.rows / stopSignTemplate.rows;
-            double scale = std::min(sx, sy) * 0.5;
-
-            if (scale > 0)
-            {
-                cv::resize(stopSignTemplate, stopSignTemplate, cv::Size(), scale, scale);
-            }
-        }
-
-        // 4. Template match
-        cv::Mat result;
-        cv::matchTemplate(frame, stopSignTemplate, result, cv::TM_CCOEFF_NORMED);
-
-        double minVal, maxVal;
-        cv::Point minLoc, maxLoc;
-        cv::minMaxLoc(result, &minVal, &maxVal, &minLoc, &maxLoc);
-
-        double threshold = 0.65;
-
-        if (maxVal > threshold)
-        {
-            // Draw detection box
-            cv::Rect box(maxLoc.x, maxLoc.y,
-                         stopSignTemplate.cols, stopSignTemplate.rows);
-
-            // Clip to frame
-            box &= cv::Rect(0, 0, frame.cols, frame.rows);
-
-            cv::rectangle(frame, box, cv::Scalar(0,0,255), 3);
-
-            cv::putText(frame, "STOP SIGN",
-                        cv::Point(box.x, box.y - 10),
-                        cv::FONT_HERSHEY_SIMPLEX,
-                        0.9, cv::Scalar(0,0,255), 2);
-
-            // 5. Save image for assignment proof
-            static int id = 0;
-            std::string out =
-                "/home/ehr/Desktop/anupama/CS5320-ObstacleAvoidance/object_detection/detected_" +
-                std::to_string(id++) + ".png";
-
-            if (cv::imwrite(out, frame))
-            {
-                std::cout << "[StopDetector] Saved detection: " << out << "\n";
-            }
-            else
-            {
-                std::cerr << "[StopDetector] Failed to save " << out << "\n";
-            }
-        }
-
-        // 6. Return annotated frame
-        return frame;
+        return imageSub->GetFrame();
     }
 
 private:
     std::shared_ptr<ImageSubscriber> imageSub; // simplified subscriber (OpenCV only)
+    bool loaded = false;
+    cv::Mat stopSignTemplate;
+    std::thread frameThread;
+
+    void run_task()
+    {
+    rclcpp::spin(imageSub);
+    }
 };
